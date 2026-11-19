@@ -31,12 +31,20 @@ jobs:
           exit $rc
           ls -la app/build/outputs/apk/release/
 
+      - name: Screenshots of the screens
+        if: always()
+        working-directory: android
+        run: |
+          ./gradlew testDebugUnitTest --no-daemon > ../test-log.txt 2>&1 || true
+          tail -40 ../test-log.txt
+
       - name: Collect output and signing tools
         if: always()
         run: |
           mkdir -p out
           cp android/app/build/outputs/apk/release/*.apk out/ 2>/dev/null || true
-          cp gradle-log.txt out/ 2>/dev/null || true
+          cp gradle-log.txt test-log.txt out/ 2>/dev/null || true
+          mkdir -p out/screens && cp android/app/build/screens/*.png out/screens/ 2>/dev/null || true
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           echo "$BT" > out/build-tools.txt
           cp "$BT/lib/apksigner.jar" out/ || true
