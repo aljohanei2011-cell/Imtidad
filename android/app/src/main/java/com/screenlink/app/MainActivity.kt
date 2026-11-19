@@ -360,6 +360,7 @@ private fun HeroCard(ui: UiState, compact: Boolean, onPage: (Page) -> Unit) {
     val status = when {
         ui.connected -> "متصل بـ ${ui.hostName} عبر ${viaText(ui)}"
         ui.status == TcpClient.STATUS_DISCONNECTED -> "غير متصل"
+        ui.status.startsWith(TcpClient.STATUS_ERROR) -> "تعذّر الاتصال بالكمبيوتر"
         else -> ui.status
     }
     val shape = RoundedCornerShape(if (compact) 22.dp else 24.dp)
@@ -394,7 +395,7 @@ private fun HeroCard(ui: UiState, compact: Boolean, onPage: (Page) -> Unit) {
                     }
                 } else {
                     HeroPill("اتصال", R.drawable.ic_link, true, w, ui.onConnect)
-                    HeroPill("البحث عبر Wi-Fi", R.drawable.ic_search, false, w) { onPage(Page.Settings) }
+                    HeroPill(if (compact) "Wi-Fi" else "البحث عبر Wi-Fi", R.drawable.ic_search, false, w) { onPage(Page.Settings) }
                 }
             }
         }
@@ -599,7 +600,7 @@ private fun ColumnScope.PhoneHome(ui: UiState, onPage: (Page) -> Unit) {
             CycleChip(if (p.fullResolution) "أصلية" else "نصف", p.fullResolution, Modifier.weight(1f)) {
                 ui.update(p.copy(fullResolution = !p.fullResolution))
             }
-            CycleChip("${p.fps} FPS", p.fps >= 60, Modifier.weight(1f)) {
+            CycleChip("${p.fps} إطار", p.fps >= 60, Modifier.weight(1f)) {
                 ui.update(p.copy(fps = when { p.fps >= 120 -> 30; p.fps >= 60 -> 120; else -> 60 }))
             }
             CycleChip(listOf("منخفضة", "متوسطة", "عالية")[p.quality], p.quality == 2, Modifier.weight(1f)) {
