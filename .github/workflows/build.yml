@@ -20,13 +20,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
       - name: Android app (unsigned release)
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee ../gradle-log.txt
+          set +e
+          ./gradlew assembleRelease --no-daemon --stacktrace > ../gradle-log.txt 2>&1
+          rc=$?
+          tail -60 ../gradle-log.txt
+          exit $rc
           ls -la app/build/outputs/apk/release/
 
       - name: Collect output and signing tools
