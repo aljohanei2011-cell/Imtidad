@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.screenlink.app"
     compileSdk = 35
-    defaultConfig { applicationId = "com.screenlink.app"; minSdk = 26; targetSdk = 35; versionCode = 21; versionName = "2.0.1" }
+    defaultConfig { applicationId = "com.screenlink.app"; minSdk = 26; targetSdk = 35; versionCode = 24; versionName = "2.0.1" }
     // Release signing: keystore and passwords live in keystore.properties (not shared).
     val props = Properties()
     val propsFile = rootProject.file("keystore.properties")

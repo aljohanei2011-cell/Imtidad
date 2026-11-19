@@ -107,6 +107,7 @@ object FileTransfer {
                     finish(app, uri)
                     main.post { received.add(0, Received(name, uri, mime)) }
                     toast(app, "وصل من الكمبيوتر: $name")
+                    if (mime == APK_MIME) openInstaller(app, uri)
                 }
             }.onFailure { toast(app, "تعذّر استلام الملف") }
         }
@@ -132,8 +133,27 @@ object FileTransfer {
         }
     }.getOrNull()
 
+    const val APK_MIME = "application/vnd.android.package-archive"
+
+    /** An app file from the PC: open Android's installer (asks once to allow installs from Imtidad). */
+    fun openInstaller(context: Context, uri: Uri) {
+        main.post {
+            runCatching {
+                if (!context.packageManager.canRequestPackageInstalls()) {
+                    toast(context, "اسمح لامتداد بتثبيت التطبيقات، ثم افتح الملف من «الملفات» في لوحة التحكم")
+                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + context.packageName)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                } else {
+                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, APK_MIME)
+                        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }
+        }
+    }
+
     fun mimeOf(name: String): String {
         val ext = name.substringAfterLast('.', "").lowercase()
+        if (ext == "apk") return APK_MIME
         return android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
     }
 

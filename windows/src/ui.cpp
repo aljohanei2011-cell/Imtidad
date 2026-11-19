@@ -17,7 +17,7 @@ namespace {
 using namespace Gdiplus;
 
 constexpr int kResIllustration = 201, kResIcons = 202, kResFontRegular = 203, kResFontBold = 204, kResAppPng = 205;
-constexpr float kW = 900, kH = 430;   // client size in DIPs
+constexpr float kW = 1120, kH = 680;  // client size in DIPs (2.0.1: the new dashboard layout)
 constexpr int kIconCell = 64;
 
 HINSTANCE g_instance = nullptr;
@@ -31,6 +31,7 @@ std::wstring g_family = L"Segoe UI";
 RectF g_cards[5];
 RectF g_audio_toggle;
 RectF g_theme_button;
+std::vector<float> g_fps_history;   // last minute of frames per second, for the small line
 
 // ------------------------------------------------------------------ light / dark look (2.0.1)
 // 0 follows Windows (Settings > Personalization > Colors), 1 light, 2 dark. Kept in HKCU\Software\ScreenLink\Theme.
@@ -208,95 +209,198 @@ void paint(Graphics& g) {
     g.SetPixelOffsetMode(PixelOffsetModeHalf);
 
     const Theme& th = theme();
+    const Color white(255, 255, 255, 255);
     SolidBrush bg(rgb(th.ground));
     g.FillRectangle(&bg, 0.f, 0.f, kW, kH);
+    auto hot_at = [](const RectF& r) { return r.Contains(static_cast<REAL>(g_hover.x), static_cast<REAL>(g_hover.y)); };
+    auto fill_round = [&](const RectF& r, float rad, Color c) { GraphicsPath p; rounded(p, r, rad); SolidBrush b(c); g.FillPath(&b, &p); };
+    auto stroke_round = [&](const RectF& r, float rad, Color c) { GraphicsPath p; rounded(p, r, rad); Pen pen(c, 1.f); g.DrawPath(&pen, &p); };
+    for (auto& c : g_cards) c = RectF();
 
-    // Left: a card with the picture, name and tagline, and the light/dark switch.
-    const RectF brand(20, 20, 388, 390);
-    card_back(g, brand, false, false, 18);
+    // ── Side bar (right, as Arabic reads): name, connected devices, Wi-Fi code, look, rights.
+    const float sx = kW - 268, sw = 252;
+    {
+        const RectF brand(sx, 16, sw, 64);
+        card_back(g, brand, false);
+        if (g_app) g.DrawImage(g_app.get(), RectF(brand.GetRight() - 52, brand.Y + 14, 36, 36));
+        text(g, L"امتداد", RectF(brand.X + 30, brand.Y + 12, sw - 96, 22), 16, true, rgb(th.text));
+        text(g, L"الإصدار 2.0.1 · يعمل", RectF(brand.X + 30, brand.Y + 34, sw - 96, 18), 12, false, rgb(th.muted));
+        SolidBrush ok(rgb(th.good));
+        g.FillEllipse(&ok, brand.X + 16, brand.Y + 28, 8.f, 8.f);
+    }
+    text(g, L"الأجهزة المتصلة", RectF(sx + 12, 98, sw - 50, 20), 13, false, rgb(th.muted));
+    text(g, std::to_wstring(st.devices.size()), RectF(sx + 12, 98, 30, 20), 13, false, rgb(th.muted), StringAlignmentFar);
+    float dy = 124;
+    if (st.devices.empty()) {
+        text(g, L"لا يوجد جهاز — صِل التابلت بالكيبل", RectF(sx + 8, dy, sw - 16, 20), 12.5f, false, rgb(th.muted));
+        dy += 30;
+    }
+    for (size_t i = 0; i < st.devices.size() && i < 4; ++i) {
+        const RectF row(sx, dy, sw, 50);
+        const RectF chip(row.GetRight() - 44, row.Y + 9, 32, 32);
+        fill_round(chip, 9, rgb(i == 0 ? 0xE8F0FE : th.soft));
+        if (is_dark()) fill_round(chip, 9, rgb(i == 0 ? 0x16306E : th.soft));
+        icon(g, IconDevices, RectF(chip.X + 7, chip.Y + 7, 18, 18), i == 0 ? rgb(th.accent) : rgb(th.text));
+        text(g, st.devices[i], RectF(row.X + 28, row.Y + 7, sw - 84, 20), 14, false, rgb(th.text));
+        text(g, st.device_link + (i == 0 && st.streaming ? L" · يعرض الآن" : L""), RectF(row.X + 28, row.Y + 27, sw - 84, 18), 12, false, rgb(th.muted));
+        SolidBrush ok(rgb(th.good));
+        g.FillEllipse(&ok, row.X + 10, row.Y + 21, 8.f, 8.f);
+        dy += 54;
+    }
+    {   // Wi-Fi: allowed or not, and the connection code
+        const RectF box(sx, kH - 214, sw, 118);
+        card_back(g, box, false);
+        const RectF allow(box.X + 12, box.Y + 10, sw - 24, 34);
+        g_cards[4] = allow;
+        if (hot_at(allow)) fill_round(allow, 8, rgb(th.selected));
+        text(g, L"السماح بالاتصال عبر Wi-Fi", RectF(allow.X + 34, allow.Y + 7, allow.Width - 40, 20), 13.5f, false, rgb(th.text));
+        const RectF tick(allow.X + 6, allow.Y + 8, 18, 18);
+        fill_round(tick, 4, st.wifi_allowed ? rgb(th.accent) : rgb(th.soft));
+        if (!st.wifi_allowed) stroke_round(tick, 4, rgb(th.border));
+        else { Pen pen(white, 2.f); g.DrawLine(&pen, tick.X + 4, tick.Y + 9, tick.X + 8, tick.Y + 13); g.DrawLine(&pen, tick.X + 8, tick.Y + 13, tick.X + 14, tick.Y + 5); }
+        const RectF code(box.X + 12, box.Y + 52, sw - 24, 54);
+        fill_round(code, 10, rgb(th.soft));
+        text(g, L"رمز الاتصال", RectF(code.X + 10, code.Y + 8, code.Width - 20, 18), 12.5f, false, rgb(th.muted));
+        text(g, st.ip.empty() ? L"" : L"‎" + st.ip, RectF(code.X + 10, code.Y + 28, code.Width - 20, 18), 11.5f, false, rgb(th.muted));
+        text(g, L"‎" + st.pin, RectF(code.X + 10, code.Y + 14, 120, 30), 22, true, rgb(th.text), StringAlignmentFar);
+    }
     {
         static const wchar_t* kModes[] = {L"المظهر: تلقائي", L"المظهر: فاتح", L"المظهر: داكن"};
-        g_theme_button = RectF(34, 32, 132, 30);
-        const bool hot = g_theme_button.Contains(static_cast<REAL>(g_hover.x), static_cast<REAL>(g_hover.y));
-        GraphicsPath p;
-        rounded(p, g_theme_button, 15);
-        SolidBrush fill(rgb(hot ? th.selected : th.soft));
-        g.FillPath(&fill, &p);
-        Pen border(rgb(hot ? th.accent : th.border), 1.f);
-        g.DrawPath(&border, &p);
-        text(g, kModes[g_theme_mode % 3], g_theme_button, 12.5f, false, rgb(th.text), StringAlignmentCenter, StringAlignmentCenter);
+        g_theme_button = RectF(sx, kH - 86, sw, 32);
+        fill_round(g_theme_button, 16, rgb(hot_at(g_theme_button) ? th.selected : th.panel));
+        stroke_round(g_theme_button, 16, rgb(hot_at(g_theme_button) ? th.accent : th.border));
+        text(g, kModes[g_theme_mode % 3], g_theme_button, 13, false, rgb(th.text), StringAlignmentCenter, StringAlignmentCenter);
     }
-    if (g_illustration) g.DrawImage(g_illustration.get(), RectF(70, 62, 288, 214));
-    text(g, L"امتداد", RectF(24, 280, 380, 46), 32, true, rgb(th.text), StringAlignmentCenter);
-    text(g, L"شاشتك الثانية، في جيبك", RectF(24, 324, 380, 26), 16, false, rgb(th.muted), StringAlignmentCenter);
-    {
-        const std::wstring os = st.os.empty() ? L"Windows" : st.os;
-        auto f = font(13, false);
-        RectF box;
-        g.MeasureString(os.c_str(), -1, f.get(), PointF(0, 0), &box);
-        const float total = box.Width + 18, left = 24 + (380 - total) / 2;
-        SolidBrush muted(rgb(th.muted));
-        g.DrawString(os.c_str(), -1, f.get(), PointF(left, 354), &muted);
-        const float x = left + box.Width + 4, y = 358;
-        SolidBrush blue(rgb(th.accent));
-        g.FillRectangle(&blue, x, y, 6.f, 6.f); g.FillRectangle(&blue, x + 7, y, 6.f, 6.f);
-        g.FillRectangle(&blue, x, y + 7, 6.f, 6.f); g.FillRectangle(&blue, x + 7, y + 7, 6.f, 6.f);
-    }
-    text(g, L"تطوير عاصم الجهني  •  © 2026 جميع الحقوق محفوظة", RectF(24, 384, 380, 20), 12, false, rgb(th.muted), StringAlignmentCenter);
+    text(g, L"تطوير عاصم الجهني · © 2026 جميع الحقوق محفوظة", RectF(sx, kH - 44, sw, 30), 11.5f, false, rgb(th.muted), StringAlignmentCenter);
 
-    // Right: status cards. The first (connected devices) is the navy/blue main card of the design.
-    const float x0 = 426, x1 = 880, h = 70, gap = 9.f;
-    std::wstring dev = st.devices.empty() ? L"لا يوجد جهاز متصل — صِل التابلت بالكيبل" : st.devices.front();
-    if (!st.devices.empty()) {
-        if (st.devices.size() > 1) dev += L" +" + std::to_wstring(st.devices.size() - 1);
-        dev += L" • " + st.device_link;
-        if (st.streaming && st.fps > 0) dev += L" • " + std::to_wstring(static_cast<int>(st.fps + 0.5)) + L" FPS";
+    // ── Main panel
+    const RectF panel(12, 12, sx - 28, kH - 24);
+    fill_round(panel, 18, rgb(th.panel));
+    stroke_round(panel, 18, rgb(th.border));
+    const float px = panel.X + 26, pw = panel.Width - 52;
+    {   // header: path and the main button
+        text(g, L"امتداد  /  الرئيسية", RectF(px + 260, panel.Y + 20, pw - 260, 24), 15, false, rgb(th.muted));
+        const RectF open(px, panel.Y + 14, 240, 38);
+        g_cards[0] = open;
+        fill_round(open, 10, hot_at(open) ? rgb(th.accent) : (is_dark() ? rgb(th.accent) : rgb(0x0B1530)));
+        text(g, L"فتح التطبيق على التابلت", open, 14, false, white, StringAlignmentCenter, StringAlignmentCenter);
+        Pen line(rgb(th.border), 1.f);
+        g.DrawLine(&line, panel.X, panel.Y + 66, panel.GetRight(), panel.Y + 66);
     }
-    struct Row { IconId icon; std::wstring title, line1, line2; int right; };  // right: 0 chevron, 1 switch
-    static const wchar_t* kSides[] = {L"على يمين الشاشة الرئيسية", L"على يسار الشاشة الرئيسية", L"فوق الشاشة الرئيسية", L"تحت الشاشة الرئيسية"};
-    std::wstring vdd2 = std::wstring(kSides[st.side % 4]) + L"  •  " +
-                        (st.vdd_width > 0 ? std::to_wstring(st.vdd_width) + L" × " + std::to_wstring(st.vdd_height) : L"بدقة التابلت");
-    const Row rows[5] = {
-        {IconDevices, L"الأجهزة المتصلة", dev, L"", 0},
-        {IconChip, L"ترميز الفيديو (Video Encoder)‏", st.encoder.empty() ? L"—" : L"‎" + st.encoder + L"‎", L"", 0},
-        {st.audio_enabled ? IconSound : IconMute, L"الصوت", L"نقل صوت الكمبيوتر إلى التابلت", L"", 1},
-        {IconMonitor, L"الشاشة الثانية", st.vdd_found ? L"جاهزة — اضغط لتغيير مكانها" : L"غير مثبتة: أعد تشغيل المثبّت واختر تعريف الشاشة",
-         st.vdd_found ? vdd2 : L"", 0},
-        {IconWifi, L"Wi-Fi", st.wifi_allowed ? L"مسموح بالاتصال" : L"غير مسموح — اضغط للسماح",
-         (st.ip.empty() ? L"" : L"عنوان IP: " + st.ip + L"   •   ") + L"رمز الاتصال: " + st.pin, 0},
-    };
-    const Color white(255, 255, 255, 255);
-    for (int i = 0; i < 5; ++i) {
-        RectF r(x0, 20 + i * (h + gap), x1 - x0, h);
-        g_cards[i] = r;
-        const bool hot = r.Contains(static_cast<REAL>(g_hover.x), static_cast<REAL>(g_hover.y));
-        const bool hero = i == 0;
-        card_back(g, r, hot, hero);
-        const Row& row = rows[i];
-        const Color title = hero ? white : rgb(th.text), muted = hero ? rgb(th.hero_muted) : rgb(th.muted);
-        {   // icon on a rounded square
-            const RectF chip(r.GetRight() - 58, r.Y + (h - 42) / 2, 42, 42);
+    float y = panel.Y + 86;
+    {
+        std::wstring title = st.streaming ? L"يعرض الآن" : (st.devices.empty() ? L"جاهز، بانتظار التابلت" : L"الجهاز متصل وجاهز");
+        text(g, title, RectF(px, y, pw, 34), 24, true, rgb(th.text));
+        std::wstring sub = st.devices.empty() ? L"صِل التابلت أو الجوال بالكيبل، أو افتح التطبيق عليه عبر Wi-Fi."
+                                              : st.devices.front() + L" متصل عبر " + st.device_link + (st.streaming ? L"، والعرض يعمل." : L".");
+        text(g, sub, RectF(px, y + 36, pw, 22), 14, false, rgb(th.muted));
+        y += 76;
+    }
+    {   // four figures in one strip, with a note row under them
+        const RectF strip(px, y, pw, 148);
+        fill_round(strip, 16, rgb(th.panel));
+        const float cw = pw / 4;
+        static const wchar_t* kSides[] = {L"يمين الشاشة الرئيسية", L"يسار الشاشة الرئيسية", L"فوق الشاشة الرئيسية", L"تحت الشاشة الرئيسية"};
+        struct Tile { std::wstring label, value, unit, note; bool spark; };
+        const Tile tiles[4] = {
+            {L"معدل الإطارات", st.streaming && st.fps > 0 ? std::to_wstring(static_cast<int>(st.fps + 0.5)) : L"—", L"إطار/ث",
+             st.streaming ? L"أثناء العرض" : L"لا يوجد عرض الآن", true},
+            {L"الترميز", st.encoder.empty() ? L"—" : (st.encoder.find(L"265") != std::wstring::npos ? L"H.265" : L"H.264"), L"",
+             st.encoder.empty() ? L"يظهر عند بدء العرض" : L"‎" + st.encoder, false},
+            {L"الشاشة الثانية", st.vdd_found ? L"جاهزة" : L"غير مثبتة", L"",
+             st.vdd_found ? std::wstring(kSides[st.side % 4]) : L"أعد تشغيل المثبّت واختر تعريف الشاشة", false},
+            {L"Wi-Fi", st.wifi_allowed ? L"مسموح" : L"مغلق", L"", st.ip.empty() ? L"" : L"‎" + st.ip, false},
+        };
+        for (int i = 0; i < 4; ++i) {
+            const float tx = strip.GetRight() - (i + 1) * cw;   // right to left
+            const RectF cell(tx, strip.Y, cw, 100);
+            if (i < 3) { Pen sep(rgb(th.border), 1.f); g.DrawLine(&sep, tx, strip.Y + 16, tx, strip.Y + 88); }
+            text(g, tiles[i].label, RectF(cell.X + 16, cell.Y + 16, cw - 32, 20), 13.5f, false, rgb(th.muted));
+            text(g, tiles[i].value + (tiles[i].unit.empty() ? L"" : L" " + tiles[i].unit), RectF(cell.X + 16, cell.Y + 38, cw - 32, 34), 24, true, rgb(th.text));
+            text(g, tiles[i].note, RectF(cell.X + 16, cell.Y + 72, cw - 32, 18), 12, false, rgb(th.muted));
+            if (tiles[i].spark && g_fps_history.size() > 1) {
+                const RectF sp(cell.X + 16, cell.Y + 44, 80, 26);
+                float mx = 1;
+                for (float v : g_fps_history) mx = std::max(mx, v);
+                std::vector<PointF> pts;
+                const size_t n = g_fps_history.size();
+                for (size_t k = 0; k < n; ++k)
+                    pts.emplace_back(sp.X + sp.Width * k / (n - 1), sp.GetBottom() - sp.Height * g_fps_history[k] / mx);
+                Pen pen(rgb(th.accent), 2.f);
+                pen.SetLineJoin(LineJoinRound);
+                g.DrawLines(&pen, pts.data(), static_cast<INT>(pts.size()));
+            }
+        }
+        const RectF note(strip.X, strip.Y + 100, strip.Width, 48);
+        {
             GraphicsPath p;
-            rounded(p, chip, 12);
-            SolidBrush fill(hero ? Color(38, 255, 255, 255) : rgb(th.soft));
-            g.FillPath(&fill, &p);
-            icon(g, row.icon, RectF(chip.X + 9, chip.Y + 9, 24, 24), hero ? white : rgb(th.text));
+            p.AddLine(note.X, note.Y, note.GetRight(), note.Y);
+            p.AddArc(note.GetRight() - 32, note.GetBottom() - 32, 32.f, 32.f, 0, 90);
+            p.AddArc(note.X, note.GetBottom() - 32, 32.f, 32.f, 90, 90);
+            p.CloseFigure();
+            SolidBrush b(rgb(th.soft));
+            g.FillPath(&b, &p);
         }
-        if (i == 0 && !st.devices.empty()) {
-            SolidBrush green(rgb(0x4ADE80));
-            g.FillEllipse(&green, r.GetRight() - 24, r.Y + h / 2 + 10, 9.f, 9.f);
+        stroke_round(strip, 16, rgb(th.border));
+        icon(g, IconCheck, RectF(note.GetRight() - 38, note.Y + 14, 20, 20), rgb(th.muted));
+        text(g, st.wifi_allowed ? L"أجهزة Wi-Fi الجديدة تُدخل رمز الاتصال مرة واحدة، ثم تتصل بمفتاحها الخاص."
+                                : L"الاتصال عبر Wi-Fi مغلق. اضغط «السماح بالاتصال عبر Wi-Fi» في الشريط الجانبي لتفعيله.",
+             RectF(note.X + 16, note.Y + 14, note.Width - 64, 20), 13, false, rgb(th.text));
+        y += 168;
+    }
+    {   // bottom: devices (wide) and quick settings
+        const float qw = 300, gap = 18;
+        const RectF dev(px + qw + gap, y, pw - qw - gap, panel.GetBottom() - y - 22);
+        const RectF quick(px, y, qw, dev.Height);
+        card_back(g, dev, false, false, 16);
+        text(g, L"الأجهزة", RectF(dev.X + 20, dev.Y + 16, dev.Width - 40, 22), 16, true, rgb(th.text));
+        text(g, std::to_wstring(st.devices.size()) + L" متصل", RectF(dev.X + 20, dev.Y + 40, dev.Width - 40, 18), 12.5f, false, rgb(th.muted));
+        const RectF head(dev.X + 1, dev.Y + 68, dev.Width - 2, 30);
+        SolidBrush hb(rgb(th.soft));
+        g.FillRectangle(&hb, head);
+        const float c1 = dev.GetRight() - 20, colw = (dev.Width - 40) / 3;
+        text(g, L"الجهاز", RectF(c1 - colw * 1.4f, head.Y + 6, colw * 1.4f, 18), 12, false, rgb(th.muted));
+        text(g, L"الاتصال", RectF(c1 - colw * 2.2f, head.Y + 6, colw * 0.8f, 18), 12, false, rgb(th.muted));
+        text(g, L"الحالة", RectF(dev.X + 20, head.Y + 6, colw * 0.8f, 18), 12, false, rgb(th.muted));
+        float ry = head.GetBottom();
+        if (st.devices.empty())
+            text(g, L"لا يوجد جهاز متصل الآن.", RectF(dev.X + 20, ry + 16, dev.Width - 40, 20), 13.5f, false, rgb(th.muted));
+        for (size_t i = 0; i < st.devices.size() && ry + 52 < dev.GetBottom(); ++i) {
+            text(g, st.devices[i], RectF(c1 - colw * 1.4f, ry + 15, colw * 1.4f, 20), 14, false, rgb(th.text));
+            text(g, st.device_link, RectF(c1 - colw * 2.2f, ry + 15, colw * 0.8f, 20), 14, false, rgb(th.text));
+            const RectF pill(dev.X + 20, ry + 12, 110, 26);
+            fill_round(pill, 13, rgb(th.soft));
+            SolidBrush ok(rgb(th.good));
+            g.FillEllipse(&ok, pill.GetRight() - 18, pill.Y + 9, 8.f, 8.f);
+            text(g, i == 0 && st.streaming ? L"يعرض الآن" : L"متصل", RectF(pill.X + 6, pill.Y + 4, pill.Width - 30, 18), 12.5f, false, rgb(th.text));
+            Pen sep(rgb(th.border), 1.f);
+            g.DrawLine(&sep, dev.X, ry + 50, dev.GetRight(), ry + 50);
+            ry += 50;
         }
-        const float tx = r.X + 64, tw = r.Width - 64 - 72;
-        const bool two = !row.line2.empty();
-        const float top = r.Y + (two ? 8 : 15);
-        text(g, row.title, RectF(tx, top, tw, 22), 15, true, title);
-        text(g, row.line1, RectF(tx, top + 22, tw, 20), 12.5f, false, muted);
-        if (two) text(g, row.line2, RectF(tx, top + 40, tw, 20), 12.5f, false, muted);
-        if (row.right == 1) {
-            g_audio_toggle = RectF(r.X + 18, r.Y + (h - 26) / 2, 48, 26);
-            toggle(g, g_audio_toggle, st.audio_enabled);
-        } else {
-            icon(g, IconChevron, RectF(r.X + 20, r.Y + (h - 20) / 2, 20, 20), muted, 0.9f);
+
+        card_back(g, quick, false, false, 16);
+        text(g, L"إعدادات سريعة", RectF(quick.X + 18, quick.Y + 16, quick.Width - 36, 22), 16, true, rgb(th.text));
+        struct Q { IconId icon; std::wstring title, sub; int kind; };   // kind: 0 switch (sound), 1 chevron
+        const Q qs[2] = {
+            {st.audio_enabled ? IconSound : IconMute, L"صوت الكمبيوتر", L"نقل الصوت إلى التابلت", 0},
+            {IconMonitor, L"مكان الشاشة الثانية",
+             st.vdd_found ? std::wstring(L"اضغط للتغيير") + (st.vdd_width > 0 ? L" · ‎" + std::to_wstring(st.vdd_width) + L"×" + std::to_wstring(st.vdd_height) : L"") : L"غير مثبتة", 1},
+        };
+        for (int i = 0; i < 2; ++i) {
+            const RectF r(quick.X + 10, quick.Y + 52 + i * 60, quick.Width - 20, 54);
+            g_cards[2 + i] = r;
+            if (hot_at(r)) fill_round(r, 12, rgb(th.selected));
+            const RectF chip(r.GetRight() - 46, r.Y + 9, 36, 36);
+            fill_round(chip, 10, rgb(th.soft));
+            icon(g, qs[i].icon, RectF(chip.X + 8, chip.Y + 8, 20, 20), rgb(th.text));
+            text(g, qs[i].title, RectF(r.X + 60, r.Y + 8, r.Width - 116, 20), 14, false, rgb(th.text));
+            text(g, qs[i].sub, RectF(r.X + 60, r.Y + 28, r.Width - 116, 18), 12, false, rgb(th.muted));
+            if (qs[i].kind == 0) { g_audio_toggle = RectF(r.X + 8, r.Y + 14, 46, 26); toggle(g, g_audio_toggle, st.audio_enabled); }
+            else icon(g, IconChevron, RectF(r.X + 14, r.Y + 17, 20, 20), rgb(th.muted), 0.9f);
+        }
+        if (g_illustration && quick.Height > 230) {
+            const float iw = std::min(quick.Width - 60, (quick.Height - 180) * 330.f / 245.f);
+            g.DrawImage(g_illustration.get(), RectF(quick.X + (quick.Width - iw) / 2, quick.GetBottom() - iw * 245.f / 330.f - 14, iw, iw * 245.f / 330.f));
         }
     }
 }
@@ -371,9 +475,13 @@ LRESULT CALLBACK proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
         }
-        case WM_TIMER:
+        case WM_TIMER: {
+            const State st = g_state ? g_state() : State{};
+            g_fps_history.push_back(st.streaming ? static_cast<float>(st.fps) : 0.f);
+            if (g_fps_history.size() > 60) g_fps_history.erase(g_fps_history.begin());
             InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
+        }
         case WM_SETTINGCHANGE:
             // Windows switched between light and dark: follow it when the look is "automatic".
             if (lp && lstrcmpiW(reinterpret_cast<LPCWSTR>(lp), L"ImmersiveColorSet") == 0 && g_theme_mode == 0) {

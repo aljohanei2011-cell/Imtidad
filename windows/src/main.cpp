@@ -49,7 +49,7 @@ constexpr UINT WM_NOTIFY_USER = WM_APP + 3;
 constexpr UINT WM_SHOW_SETTINGS = WM_APP + 4;
 
 enum MenuId : UINT {
-    ID_STATUS = 100, ID_HEADER, ID_SETTINGS, ID_OPEN_APP, ID_INSTALL_APP, ID_STOP_STREAM, ID_WIFI, ID_AUTOSTART, ID_LOG, ID_EXIT, ID_FORGET, ID_PRIVATE,
+    ID_STATUS = 100, ID_HEADER, ID_SETTINGS, ID_OPEN_APP, ID_INSTALL_APP, ID_STOP_STREAM, ID_WIFI, ID_AUTOSTART, ID_LOG, ID_EXIT, ID_FORGET, ID_PRIVATE, ID_SEND_APP,
 };
 
 std::mutex g_log_mutex;
@@ -1200,8 +1200,9 @@ void install_app_on_device() {
         notify(L"امتداد", L"جارٍ تثبيت التطبيق على الجهاز…");
         DWORD code = 1;
         std::string out = run_hidden(adb, L"install -r \"" + apk + L"\"", 180000, &code);
-        if (out.find("UPDATE_INCOMPATIBLE") != std::string::npos || out.find("signatures do not match") != std::string::npos) {
-            log("install: removing old build signed with a different key");
+        if (out.find("UPDATE_INCOMPATIBLE") != std::string::npos || out.find("signatures do not match") != std::string::npos ||
+            out.find("VERSION_DOWNGRADE") != std::string::npos) {
+            log("install: removing the build on the device (other key or newer version) before installing this one");
             run_hidden(adb, L"uninstall com.screenlink.app", 60000);
             out = run_hidden(adb, L"install \"" + apk + L"\"", 180000, &code);
         }
@@ -1265,6 +1266,16 @@ void show_menu(HWND hwnd) {
         add_item(m, MF_STRING | usb, ID_OPEN_APP, L"فتح التطبيق على التابلت", open);
         add_item(m, MF_STRING | (usb ? MF_GRAYED : 0) | (find_apk().empty() ? MF_GRAYED : 0), ID_INSTALL_APP,
                  L"تثبيت/تحديث التطبيق على التابلت", download);
+    }
+    {
+        // Without USB debugging: the app file goes to the device like any file, and the device opens the installer.
+        bool any = false;
+        {
+            std::lock_guard<std::mutex> lock(g_sessions_mutex);
+            for (auto& sess : g_sessions) any = any || sess->authed;
+        }
+        add_item(m, MF_STRING | (any && !find_apk().empty() ? 0 : MF_GRAYED), ID_SEND_APP,
+                 L"إرسال التطبيق إلى الجهاز (بدون تصحيح USB)", download);
     }
     add_item(m, MF_STRING | (g_streaming ? 0 : MF_GRAYED), ID_STOP_STREAM, L"إيقاف العرض", stop);
     AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
@@ -1515,6 +1526,14 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case ID_PRIVATE:
                     toggle_privacy();
                     break;
+                case ID_SEND_APP: {
+                    const std::wstring apk = find_apk();
+                    if (!apk.empty() && offer_file(apk, false))
+                        notify(L"امتداد", L"أُرسل التطبيق إلى الجهاز. اضغط «تثبيت» عندما تظهر نافذة التثبيت عليه.");
+                    else
+                        notify(L"امتداد", L"لا يوجد جهاز متصل لإرسال التطبيق إليه.");
+                    break;
+                }
                 case ID_FORGET:
                     forget_trusted();
                     notify(L"امتداد", L"ستحتاج أجهزة Wi-Fi لرمز الاتصال مرة أخرى.");

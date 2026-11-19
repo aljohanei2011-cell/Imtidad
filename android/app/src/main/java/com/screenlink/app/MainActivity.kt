@@ -279,238 +279,289 @@ private fun ModeIcon(m: Mode, selected: Boolean, size: Dp) {
 
 private fun viaText(ui: UiState) = if (ui.prefs.host == "127.0.0.1") "USB" else "Wi-Fi"
 
+// ───────────────────────────── New design (2.0.1): header, navy main card, modes, floating bar ─────────────────────────────
+
+@Composable
+private fun CircleIconButton(icon: Int, label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(48.dp).clip(CircleShape).background(Palette.Panel).border(1.dp, Palette.PanelBorder, CircleShape)
+            .clickable(onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Ic(icon, 20.dp, Palette.Text) }
+}
+
+/** Logo, PC name and two round buttons, at the top of every page. */
+@Composable
+private fun AppHeader(ui: UiState, compact: Boolean, onPage: (Page) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Image(painterResource(R.drawable.app_logo), contentDescription = null,
+            modifier = Modifier.size(if (compact) 44.dp else 48.dp).clip(RoundedCornerShape(14.dp)))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            if (compact) {
+                T(AppInfo.NAME, 13.sp, color = Palette.TextMuted)
+                T(if (ui.connected) ui.hostName else "غير متصل", 18.sp, FontWeight.SemiBold, maxLines = 1)
+            } else {
+                T(if (ui.connected) "${AppInfo.NAME} · ${ui.hostName}" else AppInfo.NAME, 14.sp, color = Palette.TextMuted, maxLines = 1)
+                T("حوّل جهازك إلى شاشة للكمبيوتر", 22.sp, FontWeight.SemiBold, maxLines = 1)
+            }
+        }
+        CircleIconButton(R.drawable.ic_wifi, "الأجهزة على شبكة Wi-Fi") { onPage(Page.Settings) }
+        Spacer(Modifier.width(10.dp))
+        CircleIconButton(R.drawable.ic_info, "حول التطبيق") { onPage(Page.About) }
+    }
+}
+
+/** A pill-shaped button on the navy card: white (main) or outlined. */
+@Composable
+private fun HeroPill(text: String, icon: Int?, filled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(50)
+    Row(
+        modifier.height(50.dp).clip(shape)
+            .then(if (filled) Modifier.background(Color.White) else Modifier.border(1.dp, Color(0x66FFFFFF), shape))
+            .clickable(onClick = onClick).padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+    ) {
+        if (icon != null) { Ic(icon, 18.dp, if (filled) Palette.Hero else Color.White); Spacer(Modifier.width(8.dp)) }
+        T(text, 15.sp, if (filled) FontWeight.Bold else FontWeight.Medium, if (filled) Palette.Hero else Color.White, maxLines = 1)
+    }
+}
+
+/** Small line of the last latency readings. */
+@Composable
+private fun Sparkline(values: List<Long>, modifier: Modifier) {
+    Canvas(modifier) {
+        if (values.size < 2) return@Canvas
+        val max = values.max().coerceAtLeast(1L).toFloat()
+        val min = values.min().toFloat()
+        val span = (max - min).coerceAtLeast(1f)
+        val step = size.width / (values.size - 1)
+        val path = Path()
+        values.forEachIndexed { i, v ->
+            val x = size.width - i * step   // right to left: newest on the left
+            val y = size.height * 0.1f + (1f - (v - min) / span) * size.height * 0.8f
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(path, Color.White.copy(alpha = 0.9f), style = Stroke(width = 2.5.dp.toPx()))
+    }
+}
+
+/** The navy (light look) or blue (dark look) main card: status, chosen mode and the start button. */
+@Composable
+private fun HeroCard(ui: UiState, compact: Boolean, onPage: (Page) -> Unit) {
+    val p = ui.prefs
+    val mode = Modes.firstOrNull { it.key == p.mode } ?: Modes[0]
+    var showWindows by remember { mutableStateOf(false) }
+    val history = remember { mutableStateListOf<Long>() }
+    LaunchedEffect(ui.latencyMs) {
+        ui.latencyMs?.let { history.add(0, it); if (history.size > 24) history.removeAt(history.size - 1) }
+    }
+    val quality = listOf("منخفضة", "متوسطة", "عالية")[p.quality.coerceIn(0, 2)]
+    val status = when {
+        ui.connected -> "متصل بـ ${ui.hostName} عبر ${viaText(ui)}"
+        ui.status == TcpClient.STATUS_DISCONNECTED -> "غير متصل"
+        else -> ui.status
+    }
+    val shape = RoundedCornerShape(if (compact) 22.dp else 24.dp)
+    Row(Modifier.fillMaxWidth().clip(shape).background(Palette.Hero).padding(if (compact) 18.dp else 26.dp),
+        horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(if (ui.connected) Color(0xFF4ADE80) else Color(0xFFF87171)))
+                Spacer(Modifier.width(8.dp))
+                T(status, 14.sp, color = Palette.HeroMuted, maxLines = 1)
+            }
+            Spacer(Modifier.height(6.dp))
+            T(if (ui.connected) (if (compact) "جاهز للعرض" else mode.title) else "غير متصل", if (compact) 26.sp else 34.sp,
+                FontWeight.SemiBold, Color.White, maxLines = 1)
+            T(
+                if (ui.connected) {
+                    (if (compact) "${mode.title} · " else "") + "${p.fps} إطار/ث · جودة $quality" +
+                        (if (p.hevc) " · H.265" else " · H.264") + (if (compact) ui.latencyMs?.let { " · ${it}ms" } ?: "" else "")
+                } else "شغّل برنامج ${AppInfo.NAME} على الكمبيوتر، ثم صِل الكيبل أو ابحث عنه عبر Wi-Fi.",
+                14.sp, color = Palette.HeroMuted, maxLines = 2,
+            )
+            Spacer(Modifier.height(if (compact) 16.dp else 22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                val w = if (compact) Modifier.weight(1f) else Modifier
+                if (ui.connected) {
+                    HeroPill("بدء العرض", R.drawable.ic_play, true, w, ui.onStart)
+                    if (compact) {
+                        HeroPill("لوحة التحكم", R.drawable.ic_control, false, w) { onPage(Page.Control) }
+                    } else {
+                        if (p.mode != "EXTEND") HeroPill("اختيار نافذة", null, false) { Link.requestWindows(); showWindows = true }
+                        HeroPill("قطع الاتصال", null, false, onClick = ui.onDisconnect)
+                    }
+                } else {
+                    HeroPill("اتصال", R.drawable.ic_link, true, w, ui.onConnect)
+                    HeroPill("البحث عبر Wi-Fi", R.drawable.ic_search, false, w) { onPage(Page.Settings) }
+                }
+            }
+        }
+        if (!compact) {
+            Column(Modifier.width(230.dp).clip(RoundedCornerShape(18.dp)).background(Color(0x1FFFFFFF)).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                T("زمن الاستجابة", 13.sp, color = Palette.HeroMuted)
+                T(ui.latencyMs?.let { "$it ms" } ?: "—", 28.sp, FontWeight.SemiBold, Color.White)
+                Sparkline(history.toList(), Modifier.fillMaxWidth().height(56.dp))
+                T(if (ui.connected) "عبر ${viaText(ui)}" else "غير متصل", 12.sp, color = Palette.HeroMuted)
+            }
+        }
+    }
+    if (showWindows) WindowDialog(ui) { showWindows = false }
+}
+
+@Composable
+private fun RadioMark(selected: Boolean) {
+    Box(Modifier.size(22.dp).clip(CircleShape)
+        .border(if (selected) 6.dp else 2.dp, if (selected) Palette.Accent else Palette.TextMuted.copy(alpha = 0.45f), CircleShape))
+}
+
+/** A mode as a tall card (tablet): icon, round mark, name and a line about it. */
+@Composable
+private fun ModeCard(m: Mode, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier.heightIn(min = 170.dp).fillMaxHeight().modeSurface(m, selected, 20.dp).clickable(onClick = onClick).padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+            ModeIcon(m, selected, 48.dp)
+            RadioMark(selected)
+        }
+        Spacer(Modifier.weight(1f))
+        T(m.title, 17.sp, FontWeight.SemiBold, maxLines = 1)
+        T(m.subtitle, 13.sp, color = Palette.TextMuted, maxLines = 2)
+    }
+}
+
+/** A mode as a small tile (phone, two by two). */
+@Composable
+private fun ModeChip(m: Mode, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Row(
+        modifier.height(64.dp).modeSurface(m, selected, 16.dp).clickable(onClick = onClick).padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ModeIcon(m, selected, 38.dp)
+        Spacer(Modifier.width(10.dp))
+        T(m.title, 14.sp, FontWeight.Medium, maxLines = 1)
+    }
+}
+
+@Composable
+private fun ModesSection(ui: UiState, wide: Boolean) {
+    val current = Modes.firstOrNull { it.key == ui.prefs.mode } ?: Modes[0]
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        T("اختر وضع العرض", 18.sp, FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        if (wide) ProfileChips(ui) else T(current.title, 13.sp, color = Palette.TextMuted)
+    }
+    if (wide) {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Modes.forEach { m -> ModeCard(m, ui.prefs.mode == m.key, Modifier.weight(1f)) { ui.onMode(m.key) } }
+        }
+    } else {
+        Modes.chunked(2).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { m -> ModeChip(m, ui.prefs.mode == m.key, Modifier.weight(1f)) { ui.onMode(m.key) } }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+        T(label, 15.sp, FontWeight.Medium, modifier = Modifier.weight(1f))
+        AudioSwitch(checked, onChange)
+    }
+}
+
+/** "جودة البث": frames, resolution, quality and the switches (tablet side column). */
+@Composable
+private fun QualityCard(ui: UiState) {
+    val p = ui.prefs
+    Glass(Modifier.fillMaxWidth(), radius = 24.dp, padding = 22.dp, spacing = 10.dp) {
+        T("جودة البث", 18.sp, FontWeight.SemiBold)
+        T("الإطارات في الثانية", 13.sp, color = Palette.TextMuted)
+        Segmented(listOf("30", "60", "120"), when { p.fps >= 120 -> 2; p.fps >= 60 -> 1; else -> 0 }) {
+            ui.update(p.copy(fps = when (it) { 2 -> 120; 1 -> 60; else -> 30 }))
+        }
+        T("الدقة", 13.sp, color = Palette.TextMuted)
+        Segmented(listOf("أصلية", "نصف"), if (p.fullResolution) 0 else 1) { ui.update(p.copy(fullResolution = it == 0)) }
+        T("الجودة", 13.sp, color = Palette.TextMuted)
+        Segmented(listOf("منخفضة", "متوسطة", "عالية"), p.quality.coerceIn(0, 2)) { ui.update(p.copy(quality = it)) }
+        HorizontalDivider(color = Palette.PanelBorder, modifier = Modifier.padding(vertical = 4.dp))
+        ToggleRow("ترميز H.265 (أوضح)", p.hevc) { ui.update(p.copy(hevc = it)) }
+        ToggleRow("جودة تتكيف مع الشبكة", p.adaptive) { ui.update(p.copy(adaptive = it)) }
+        ToggleRow("صوت الكمبيوتر", p.audio) { ui.update(p.copy(audio = it)) }
+        ToggleRow("ابدأ عند توصيل الكيبل", p.autoStart) { ui.update(p.copy(autoStart = it)) }
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.Soft).padding(12.dp)) {
+            Ic(R.drawable.ic_info, 18.dp, Palette.TextMuted)
+            Spacer(Modifier.width(10.dp))
+            T("جيد: الدقة الأصلية و60 إطارًا وجودة متوسطة إلى عالية.", 13.sp)
+        }
+    }
+}
+
+/** The floating pill at the bottom: the chosen page is a navy pill with its name, the others are icons. */
+@Composable
+private fun PillBar(page: Page, onPage: (Page) -> Unit, fill: Boolean, modifier: Modifier) {
+    val shape = RoundedCornerShape(50)
+    Row(
+        modifier.shadow(10.dp, shape).clip(shape).background(Palette.Panel).border(1.dp, Palette.PanelBorder, shape).padding(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        val items = listOf(
+            Triple(Page.Home, "الرئيسية", R.drawable.ic_home),
+            Triple(Page.Control, "التحكم", R.drawable.ic_control),
+            Triple(Page.Settings, "الإعدادات", R.drawable.ic_settings),
+            Triple(Page.About, "حول", R.drawable.ic_info),
+        )
+        items.forEach { (target, label, icon) ->
+            val on = page == target
+            val size = if (fill) Modifier.weight(if (on) 1.7f else 1f) else if (on) Modifier else Modifier.width(64.dp)
+            Row(
+                size.height(52.dp).clip(shape).then(if (on) Modifier.background(Palette.Ink) else Modifier)
+                    .clickable(onClickLabel = label) { onPage(target) }.padding(horizontal = if (on) 20.dp else 0.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+            ) {
+                Ic(icon, 20.dp, if (on) Color.White else Palette.Text)
+                if (on) { Spacer(Modifier.width(8.dp)); T(label, 15.sp, FontWeight.Medium, Color.White, maxLines = 1) }
+            }
+        }
+    }
+}
+
 // ───────────────────────────── Tablet ─────────────────────────────
 
 @Composable
 private fun TabletLayout(ui: UiState, page: Page, onPage: (Page) -> Unit) {
-    Row(Modifier.fillMaxSize().systemBarsPadding()) {
-        SideBar(page, onPage, Modifier.width(232.dp).fillMaxHeight())
-        Column(Modifier.weight(1f).fillMaxHeight().padding(start = 22.dp, end = 22.dp, top = 22.dp, bottom = 18.dp)) {
-            when (page) {
-                Page.Home -> {
-                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                        Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)) { TabletHome(ui) }
-                        Column(Modifier.width(300.dp).fillMaxHeight().verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            StatusCard(ui)
-                            OptionsCard(ui)
-                        }
+    Box(Modifier.fillMaxSize().systemBarsPadding()) {
+        Column(Modifier.fillMaxSize().padding(start = 28.dp, end = 28.dp, top = 22.dp)) {
+            AppHeader(ui, compact = false, onPage)
+            Spacer(Modifier.height(20.dp))
+            if (page == Page.Home) {
+                Row(Modifier.weight(1f).padding(bottom = 92.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                    Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                        HeroCard(ui, compact = false, onPage)
+                        ModesSection(ui, wide = true)
                     }
-                    Spacer(Modifier.height(16.dp))
-                    TipsBar()
-                }
-                Page.Control -> Column(Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)) { ControlPage(ui, wide = true) }
-                Page.Settings -> Column(Modifier.widthIn(max = 720.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)) { WifiPage(ui, onBack = { onPage(Page.Home) }) }
-                Page.About -> Column(Modifier.widthIn(max = 720.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)) { AboutPage() }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SideBar(page: Page, onPage: (Page) -> Unit, modifier: Modifier) {
-    Box(
-        modifier.background(Palette.Panel)
-            .drawBehind { drawLine(Palette.PanelBorder, Offset(0f, 0f), Offset(0f, size.height), 1.5f) },  // edge toward the content (RTL: left)
-    ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 26.dp)) {
-            Image(painterResource(R.drawable.app_logo), contentDescription = null,
-                modifier = Modifier.size(64.dp).clip(RoundedCornerShape(18.dp)))
-            Spacer(Modifier.height(10.dp))
-            T(AppInfo.NAME, 28.sp, FontWeight.Bold)
-            T("شاشتك الثانية، في جيبك", 14.sp, color = Palette.TextMuted)
-            Spacer(Modifier.height(26.dp))
-            NavItem("الرئيسية", R.drawable.ic_home, page == Page.Home) { onPage(Page.Home) }
-            Spacer(Modifier.height(8.dp))
-            NavItem("لوحة التحكم", R.drawable.ic_control, page == Page.Control) { onPage(Page.Control) }
-            Spacer(Modifier.height(8.dp))
-            NavItem("الإعدادات", R.drawable.ic_settings, page == Page.Settings) { onPage(Page.Settings) }
-            Spacer(Modifier.height(8.dp))
-            NavItem("حول التطبيق", R.drawable.ic_info, page == Page.About) { onPage(Page.About) }
-            Spacer(Modifier.weight(1f))
-            T("تطوير ${AppInfo.DEVELOPER}", 13.sp, color = Palette.TextMuted, modifier = Modifier.fillMaxWidth(), align = TextAlign.Center)
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                // Written left-to-right on purpose: «Windows ⇄ Android».
-                CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        T("Windows", 15.sp, FontWeight.SemiBold); T("  ⇄  ", 15.sp, FontWeight.Bold); T("Android", 15.sp, FontWeight.SemiBold)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NavItem(label: String, icon: Int, selected: Boolean, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(14.dp)
-    Row(
-        Modifier.fillMaxWidth().height(52.dp)
-            .then(if (selected) Modifier.clip(shape).background(Palette.Soft).border(1.dp, Palette.PanelBorder, shape) else Modifier.clip(shape))
-            .clickable(onClick = onClick).padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Ic(icon, 22.dp, if (selected) Palette.Text else Palette.TextMuted)
-        Spacer(Modifier.width(14.dp))
-        T(label, 17.sp, if (selected) FontWeight.Bold else FontWeight.Medium, Palette.Text)
-    }
-}
-
-@Composable
-private fun ColumnScope.TabletHome(ui: UiState) {
-    Column {
-        T("مرحبًا بك في ${AppInfo.NAME}", 30.sp, FontWeight.Bold)
-        T("حوّل جهازك إلى شاشة للكمبيوتر واعمل بكفاءة أكبر", 17.sp, color = Palette.TextMuted)
-    }
-    PcCard(ui, compact = false)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        T("اختر وضع العرض", 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
-        ProfileChips(ui)
-    }
-    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Modes.forEach { m -> ModeTile(m, ui.prefs.mode == m.key, Modifier.weight(1f)) { ui.onMode(m.key) } }
-    }
-    WindowChoice(ui)
-    PrimaryButton("بدء العرض", R.drawable.ic_play, ui.connected, 60.dp, 22.sp, Modifier.fillMaxWidth(), ui.onStart)
-    if (!ui.connected) NotConnectedHint()
-}
-
-@Composable
-private fun NotConnectedHint() {
-    T("شغّل برنامج ${AppInfo.NAME} على الكمبيوتر، ثم صِل الكيبل أو ابحث عن الكمبيوتر عبر Wi-Fi من الإعدادات.", 14.sp,
-        color = Palette.TextMuted, modifier = Modifier.fillMaxWidth(), align = TextAlign.Center)
-}
-
-@Composable
-private fun PcCard(ui: UiState, compact: Boolean) {
-    // The big status card of the new design: navy (light look) or blue (dark look), white writing.
-    val shape = RoundedCornerShape(if (compact) 22.dp else 24.dp)
-    Column(Modifier.fillMaxWidth().clip(shape).background(Palette.Hero).padding(if (compact) 16.dp else 22.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(if (compact) 44.dp else 52.dp).clip(RoundedCornerShape(14.dp)).background(Color(0x26FFFFFF)),
-                contentAlignment = Alignment.Center) { Ic(R.drawable.ic_pc, if (compact) 24.dp else 28.dp, Color.White) }
-            Spacer(Modifier.width(if (compact) 12.dp else 16.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(8.dp).clip(CircleShape).background(if (ui.connected) Color(0xFF4ADE80) else Color(0xFFF87171)))
-                    Spacer(Modifier.width(8.dp))
-                    T(if (ui.connected) "متصل عبر ${viaText(ui)}" + (ui.latencyMs?.let { " · ${it}ms" } ?: "")
-                      else if (ui.status == TcpClient.STATUS_DISCONNECTED) "غير متصل" else ui.status,
-                      13.sp, color = Palette.HeroMuted, maxLines = 2)
-                }
-                T(if (ui.connected) ui.hostName else "الكمبيوتر", if (compact) 20.sp else 26.sp, FontWeight.Bold, Color.White, maxLines = 1)
-                if (ui.connected) T(ui.hostOs, 13.sp, color = Palette.HeroMuted)
-            }
-            val pill = RoundedCornerShape(50)
-            if (ui.connected) {
-                if (!compact) {
-                    Row(Modifier.height(44.dp).clip(pill).border(1.dp, Color(0x66FFFFFF), pill).clickable(onClick = ui.onDisconnect)
-                        .padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                        T("قطع الاتصال", 15.sp, FontWeight.SemiBold, Color.White)
-                    }
+                    Column(Modifier.width(360.dp).fillMaxHeight().verticalScroll(rememberScrollState())) { QualityCard(ui) }
                 }
             } else {
-                Row(Modifier.height(42.dp).clip(pill).background(Color.White).clickable(onClick = ui.onConnect)
-                    .padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                    T("اتصال", 15.sp, FontWeight.Bold, Palette.Hero)
+                Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 100.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    when (page) {
+                        Page.Control -> ControlPage(ui, wide = true)
+                        Page.Settings -> Column(Modifier.widthIn(max = 760.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            WifiPage(ui, onBack = { onPage(Page.Home) })
+                        }
+                        else -> Column(Modifier.widthIn(max = 760.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) { AboutPage() }
+                    }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ModeTile(m: Mode, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Box(modifier.heightIn(min = 160.dp).fillMaxHeight().modeSurface(m, selected, 20.dp).clickable(onClick = onClick)) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 18.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            ModeIcon(m, selected, 64.dp)
-            Spacer(Modifier.height(12.dp))
-            T(m.title, 19.sp, FontWeight.Bold)
-            Spacer(Modifier.height(6.dp))
-            T(m.subtitle, 13.sp, color = Palette.TextMuted, align = TextAlign.Center)
-        }
-        if (selected) Box(Modifier.align(Alignment.TopStart).padding(10.dp)) { CheckBadge() }
-    }
-}
-
-@Composable
-private fun StatusCard(ui: UiState) {
-    Glass(Modifier.fillMaxWidth()) {
-        T("حالة الاتصال", 18.sp, FontWeight.Bold)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Dot(if (ui.connected) Palette.Good else Palette.Danger, 12.dp)
-            Spacer(Modifier.width(10.dp))
-            T(if (ui.connected) "متصل عبر ${viaText(ui)}" else "غير متصل", 16.sp, FontWeight.SemiBold)
-        }
-        HorizontalDivider(color = Palette.PanelBorder)
-        T("زمن الاستجابة: " + (ui.latencyMs?.let { "${it}ms" } ?: "—"), 15.sp, color = Palette.TextMuted)
-    }
-}
-
-@Composable
-private fun OptionsCard(ui: UiState) {
-    val p = ui.prefs
-    Glass(Modifier.fillMaxWidth(), spacing = 8.dp) {
-        T("خيارات العرض", 18.sp, FontWeight.Bold)
-        T("الدقة", 14.sp, color = Palette.TextMuted)
-        Segmented(listOf("أصلية", "نصف"), if (p.fullResolution) 0 else 1) { ui.update(p.copy(fullResolution = it == 0)) }
-        T("معدل الإطارات", 14.sp, color = Palette.TextMuted)
-        Segmented(listOf("120", "60 FPS", "30 FPS"), when { p.fps >= 120 -> 0; p.fps >= 60 -> 1; else -> 2 }) {
-            ui.update(p.copy(fps = when (it) { 0 -> 120; 1 -> 60; else -> 30 }))
-        }
-        T("جودة البث", 14.sp, color = Palette.TextMuted)
-        Segmented(listOf("عالية", "متوسطة", "منخفضة"), 2 - p.quality) { ui.update(p.copy(quality = 2 - it)) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            T("نقل الصوت", 15.sp, FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            AudioSwitch(p.audio) { ui.update(p.copy(audio = it)) }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            T("ابدأ عند توصيل الكيبل", 15.sp, FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            AudioSwitch(p.autoStart) { ui.update(p.copy(autoStart = it)) }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            T("جودة تتكيف مع الشبكة", 15.sp, FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            AudioSwitch(p.adaptive) { ui.update(p.copy(adaptive = it)) }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            T("ترميز H.265 (أوضح)", 15.sp, FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            AudioSwitch(p.hevc) { ui.update(p.copy(hevc = it)) }
-        }
-    }
-}
-
-@Composable
-private fun TipsBar() {
-    Glass(Modifier.fillMaxWidth(), padding = 14.dp, spacing = 8.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Ic(R.drawable.ic_info, 20.dp)
-            Spacer(Modifier.width(8.dp))
-            T("أثناء العرض", 16.sp, FontWeight.Bold)
-        }
-        Row(Modifier.fillMaxWidth()) {
-            Tip(R.drawable.ic_tap, "اضغط مرة واحدة", "= النقر بالزر الأيسر", Modifier.weight(1f))
-            Tip(R.drawable.ic_tap, "اضغط مطولًا", "= النقر بالزر الأيمن", Modifier.weight(1f))
-            Tip(R.drawable.ic_tap, "مرّر بإصبعين", "للتمرير (السكرول)", Modifier.weight(1f))
-            Tip(R.drawable.ic_pen, "استخدم القلم", "مع حساسية الضغط", Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
-private fun Tip(icon: Int, title: String, sub: String, modifier: Modifier) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-        Ic(icon, 30.dp)
-        Spacer(Modifier.width(10.dp))
-        Column {
-            T(title, 14.sp, FontWeight.SemiBold)
-            T(sub, 13.sp, color = Palette.TextMuted)
-        }
+        PillBar(page, onPage, fill = false, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp))
     }
 }
 
@@ -518,11 +569,12 @@ private fun Tip(icon: Int, title: String, sub: String, modifier: Modifier) {
 
 @Composable
 private fun PhoneLayout(ui: UiState, page: Page, onPage: (Page) -> Unit) {
-    Column(Modifier.fillMaxSize().systemBarsPadding()) {
+    Box(Modifier.fillMaxSize().systemBarsPadding()) {
         Column(
-            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            AppHeader(ui, compact = true, onPage)
             when (page) {
                 Page.Home -> PhoneHome(ui, onPage)
                 Page.Control -> ControlPage(ui, wide = false)
@@ -530,47 +582,19 @@ private fun PhoneLayout(ui: UiState, page: Page, onPage: (Page) -> Unit) {
                 Page.About -> AboutPage()
             }
         }
-        BottomBar(page, onPage)
+        PillBar(page, onPage, fill = true,
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 18.dp, end = 18.dp, bottom = 14.dp))
     }
 }
 
 @Composable
 private fun ColumnScope.PhoneHome(ui: UiState, onPage: (Page) -> Unit) {
-    var menu by remember { mutableStateOf(false) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box {
-            IconButton(onClick = { menu = true }) { Ic(R.drawable.ic_menu, 26.dp) }
-            DropdownMenu(menu, onDismissRequest = { menu = false }, containerColor = Palette.Panel) {
-                DropdownMenuItem(text = { T("الأجهزة على شبكة Wi-Fi") }, leadingIcon = { Ic(R.drawable.ic_wifi) },
-                    onClick = { menu = false; onPage(Page.Settings) })
-                DropdownMenuItem(text = { T("حول التطبيق") }, leadingIcon = { Ic(R.drawable.ic_info) },
-                    onClick = { menu = false; onPage(Page.About) })
-            }
-        }
-        T(AppInfo.NAME, 22.sp, FontWeight.Bold)
-        Spacer(Modifier.width(8.dp))
-        Dot(if (ui.connected) Palette.Good else Palette.Danger, 10.dp)
-    }
-    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        T("مرحبًا بك في ${AppInfo.NAME}", 24.sp, FontWeight.Bold)
-        T("حوّل جهازك إلى شاشة للكمبيوتر", 15.sp, color = Palette.TextMuted)
-    }
-    PcCard(ui, compact = true)
-    Modes.forEach { m -> ModeRow(m, ui.prefs.mode == m.key) { ui.onMode(m.key) } }
+    HeroCard(ui, compact = true, onPage)
+    ModesSection(ui, wide = false)
     WindowChoice(ui)
-    PrimaryButton("بدء العرض", R.drawable.ic_play, ui.connected, 54.dp, 19.sp, Modifier.fillMaxWidth(), ui.onStart)
-    if (!ui.connected) NotConnectedHint()
-    Glass(Modifier.fillMaxWidth(), padding = 14.dp, spacing = 4.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            T("حالة الاتصال", 16.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
-            Ic(if (viaText(ui) == "USB") R.drawable.ic_usb else R.drawable.ic_wifi, 22.dp, if (ui.connected) Palette.Good else Palette.TextMuted)
-        }
-        T(if (ui.connected) "متصل عبر ${viaText(ui)}" + (ui.latencyMs?.let { "  •  ${it}ms" } ?: "") else "غير متصل",
-            14.sp, color = Palette.TextMuted)
-    }
     val p = ui.prefs
-    Glass(Modifier.fillMaxWidth(), padding = 14.dp, spacing = 10.dp) {
-        T("خيارات العرض", 16.sp, FontWeight.Bold)
+    Glass(Modifier.fillMaxWidth(), padding = 16.dp, spacing = 10.dp) {
+        T("خيارات العرض", 16.sp, FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CycleChip(if (p.fullResolution) "أصلية" else "نصف", p.fullResolution, Modifier.weight(1f)) {
                 ui.update(p.copy(fullResolution = !p.fullResolution))
@@ -582,72 +606,21 @@ private fun ColumnScope.PhoneHome(ui: UiState, onPage: (Page) -> Unit) {
                 ui.update(p.copy(quality = (p.quality + 1) % 3))
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            T("نقل الصوت", 15.sp, FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            AudioSwitch(p.audio) { ui.update(p.copy(audio = it)) }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            T("ابدأ عند توصيل الكيبل", 15.sp, FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            AudioSwitch(p.autoStart) { ui.update(p.copy(autoStart = it)) }
-        }
+        ToggleRow("صوت الكمبيوتر", p.audio) { ui.update(p.copy(audio = it)) }
+        ToggleRow("ابدأ عند توصيل الكيبل", p.autoStart) { ui.update(p.copy(autoStart = it)) }
     }
 }
 
 /** One option that changes with each tap; highlighted at its best setting. */
 @Composable
 private fun CycleChip(label: String, best: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(12.dp)
     Box(
-        modifier.height(42.dp).clip(shape)
+        modifier.height(44.dp).clip(shape)
             .then(if (best) Modifier.background(AccentBrush) else Modifier.background(Palette.Soft))
             .border(1.dp, if (best) Color.Transparent else Palette.PanelBorder, shape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { T(label, 14.sp, FontWeight.SemiBold, if (best) Color.White else Palette.Text) }
-}
-
-@Composable
-private fun ModeRow(m: Mode, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().height(70.dp).modeSurface(m, selected, 16.dp).clickable(onClick = onClick).padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ModeIcon(m, selected, 46.dp)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            T(m.title, 17.sp, FontWeight.Bold)
-            T(m.short, 13.sp, color = Palette.TextMuted)
-        }
-        if (selected) CheckBadge(28.dp)
-    }
-}
-
-@Composable
-private fun BottomBar(page: Page, onPage: (Page) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(Palette.Panel)
-            .drawBehind { drawLine(Palette.PanelBorder, Offset(0f, 0f), Offset(size.width, 0f), 1.5f) }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        BarItem("الرئيسية", R.drawable.ic_home, page == Page.Home, Modifier.weight(1f)) { onPage(Page.Home) }
-        BarItem("التحكم", R.drawable.ic_control, page == Page.Control, Modifier.weight(1f)) { onPage(Page.Control) }
-        BarItem("الإعدادات", R.drawable.ic_settings, page == Page.Settings, Modifier.weight(1f)) { onPage(Page.Settings) }
-        BarItem("حول", R.drawable.ic_info, page == Page.About, Modifier.weight(1f)) { onPage(Page.About) }
-    }
-}
-
-@Composable
-private fun BarItem(label: String, icon: Int, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(30.dp)
-    Column(
-        modifier.height(60.dp).clip(shape)
-            .then(if (selected) Modifier.background(AccentBrush) else Modifier)
-            .clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-    ) {
-        Ic(icon, 22.dp, if (selected) Color.White else Palette.TextMuted)
-        T(label, 12.sp, if (selected) FontWeight.Bold else FontWeight.Medium, if (selected) Color.White else Palette.TextMuted)
-    }
 }
 
 // ───────────────────────────── Wi-Fi / settings ─────────────────────────────
@@ -1075,25 +1048,35 @@ private fun WindowChoice(ui: UiState) {
         }
         TextButton(enabled = ui.connected, onClick = { Link.requestWindows(); open = true }) { T("اختيار نافذة", 14.sp, FontWeight.Bold, Palette.Glow) }
     }
-    if (open) {
-        AlertDialog(
-            onDismissRequest = { open = false },
-            containerColor = Palette.Panel,
-            title = { T("اختر نافذة لعرضها وحدها", 19.sp, FontWeight.Bold) },
-            text = {
-                Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (Link.windows.isEmpty()) T("جارٍ جلب النوافذ المفتوحة…", 14.sp, color = Palette.TextMuted)
-                    Link.windows.forEach { (id, title) ->
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Palette.Soft)
-                                .clickable { ui.update(p.copy(windowId = id, windowTitle = title.take(60))); open = false }.padding(12.dp),
-                        ) { T(title, 14.sp, maxLines = 1) }
+    if (open) WindowDialog(ui) { open = false }
+}
+
+/** List of the PC's open windows; choosing one shows it alone. */
+@Composable
+private fun WindowDialog(ui: UiState, onClose: () -> Unit) {
+    val p = ui.prefs
+    AlertDialog(
+        onDismissRequest = onClose,
+        containerColor = Palette.Panel,
+        title = { T("اختر نافذة لعرضها وحدها", 19.sp, FontWeight.Bold) },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (Link.windows.isEmpty()) T("جارٍ جلب النوافذ المفتوحة…", 14.sp, color = Palette.TextMuted)
+                Link.windows.forEach { (id, title) ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Palette.Soft)
+                            .clickable { ui.update(p.copy(windowId = id, windowTitle = title.take(60))); onClose() }.padding(12.dp),
+                    ) { T(title, 14.sp, maxLines = 1) }
+                }
+                if (p.windowId != 0L) {
+                    TextButton(onClick = { ui.update(p.copy(windowId = 0, windowTitle = "")); onClose() }) {
+                        T("الشاشة كاملة", 14.sp, FontWeight.Bold, Palette.Glow)
                     }
                 }
-            },
-            confirmButton = { TextButton(onClick = { open = false }) { T("إغلاق", 15.sp, color = Palette.TextMuted) } },
-        )
-    }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { T("إغلاق", 15.sp, color = Palette.TextMuted) } },
+    )
 }
 
 /** A stopwatch for talks: start / pause / reset. */
