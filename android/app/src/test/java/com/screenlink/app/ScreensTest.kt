@@ -12,7 +12,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** Pictures of the home screen in the new design: tablet and phone, light and dark (build/screens/*.png). */
+/** Pictures of the home screen in the new design: tablet and phone, light and dark, saved under build/screens. */
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ScreensTest {
