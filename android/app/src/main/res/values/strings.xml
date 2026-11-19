@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">امتداد</string>
+    <string name="share_label">إرسال إلى الكمبيوتر (امتداد)</string>
+    <string name="widget_start">اضغط لبدء العرض</string>
+    <string name="widget_label">امتداد — بدء العرض</string>
+</resources>

@@ -1,0 +1,10 @@
+امتداد (Imtidad)
+© 2026 عاصم الجهني. جميع الحقوق محفوظة.
+Copyright (c) 2026 Asim Aljohanei. All rights reserved.
+
+لا يجوز نسخ هذا البرنامج أو توزيعه أو تعديله أو بيعه دون إذن كتابي من المطوّر.
+This software may not be copied, distributed, modified or sold without written permission from the developer.
+
+مكوّنات خارجية مضمّنة (لكل منها رخصته، انظر LICENSES.txt):
+nlohmann/json (MIT) · IBM Plex Sans Arabic (SIL OFL 1.1) · Lucide icons (ISC) ·
+Android platform tools / adb (Apache 2.0) · Virtual Display Driver (MIT)

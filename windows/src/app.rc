@@ -1,0 +1,33 @@
+#pragma code_page(65001)
+#include <winver.h>
+1 ICON "../../design/screenlink.ico"
+1 24 "app.manifest"
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 2,0,1,0
+PRODUCTVERSION 2,0,1,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "عاصم الجهني"
+      VALUE "FileDescription", "امتداد"
+      VALUE "LegalCopyright", "© 2026 عاصم الجهني. جميع الحقوق محفوظة."
+      VALUE "FileVersion", "2.0.1"
+      VALUE "ProductName", "امتداد (Imtidad)"
+      VALUE "ProductVersion", "2.0.1"
+      VALUE "OriginalFilename", "Imtidad.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
+201 RCDATA "../res/illustration.png"
+202 RCDATA "../res/icons.png"
+203 RCDATA "../res/plex_regular.ttf"
+204 RCDATA "../res/plex_bold.ttf"
+205 RCDATA "../res/app_128.png"

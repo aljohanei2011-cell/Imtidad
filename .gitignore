@@ -1,0 +1,25 @@
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+*.apk
+# Windows
+windows/build/
+windows/out/
+windows/.vs/
+*.exe
+*.pdb
+keystore.properties
+keystore/
+
+# Signing (kept in repository secrets, never committed)
+android/keystore/
+android/keystore.properties
+# Build output
+windows/src/*.o
+windows/src/Imtidad.exe
+installer/Imtidad-Setup-*.exe
+build_all_log.txt

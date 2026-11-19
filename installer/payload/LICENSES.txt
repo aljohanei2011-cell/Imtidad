@@ -1,0 +1,13 @@
+Imtidad (امتداد) 1.0.0
+
+Bundled third-party components:
+- Virtual Display Driver (VirtualDrivers / MikeTheTech) — driver files in "driver\", MIT License, https://github.com/VirtualDrivers/Virtual-Display-Driver
+- devcon.exe — Microsoft Windows Driver Kit sample tool, as shipped with the Virtual Display Driver package.
+- Android Debug Bridge (adb) — Android SDK Platform-Tools, Apache License 2.0 (see adb\NOTICE.txt when present).
+- nlohmann/json — MIT License.
+
+IBM Plex Sans Arabic (font used in the app and settings window)
+Copyright 2017 IBM Corp. Licensed under the SIL Open Font License 1.1.
+
+Lucide icons (line icons used in the app and settings window)
+ISC License. Copyright (c) Lucide Icons and Contributors.

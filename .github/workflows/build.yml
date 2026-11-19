@@ -1,0 +1,59 @@
+# Builds everything for Imtidad: the Android app (signed), the Windows program and the installer.
+# Signing: repository secrets KEYSTORE_B64 (base64 of android/keystore/imtidad-release.jks) and KEYSTORE_PROPERTIES
+# (the text of android/keystore.properties). Neither file is kept in the repository.
+name: build
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PROPERTIES: ${{ secrets.KEYSTORE_PROPERTIES }}
+        run: |
+          mkdir -p android/keystore
+          echo "$KEYSTORE_B64" | base64 -d > android/keystore/imtidad-release.jks
+          printf '%s\n' "$KEYSTORE_PROPERTIES" > android/keystore.properties
+
+      - name: Android app
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/*.apk ../installer/payload/Imtidad-2.0.1.apk
+
+      - name: Windows program
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q g++-mingw-w64-x86-64-posix nsis
+          cd windows/src
+          x86_64-w64-mingw32-windres app.rc -O coff -o app_res.o
+          x86_64-w64-mingw32-g++-posix -std=c++20 -Wall -O2 -municode -mwindows -I. -I../third_party main.cpp protocol.cpp input.cpp stream.cpp display.cpp audio.cpp ui.cpp mixer.cpp app_res.o -o Imtidad.exe -static -lws2_32 -ld3d11 -ldxgi -lmfplat -lmfuuid -lwmcodecdspuuid -lole32 -loleaut32 -luser32 -lshell32 -ladvapi32 -lksuser -lgdiplus -ldwmapi -lshlwapi -luuid -liphlpapi -lbcrypt -lcrypt32
+          cp Imtidad.exe ../../installer/payload/Imtidad.exe
+
+      - name: Installer
+        working-directory: installer
+        run: makensis imtidad.nsi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Imtidad-2.0.1
+          path: |
+            installer/Imtidad-Setup-2.0.1.exe
+            installer/payload/Imtidad-2.0.1.apk
+
+      - name: Remove signing files
+        if: always()
+        run: rm -rf android/keystore android/keystore.properties
