@@ -36,6 +36,8 @@ struct Actions {
     std::function<void()> toggle_audio;      // sound switch
     std::function<void()> display_settings;  // second-screen card (changes its side)
     std::function<void()> allow_wifi;        // Wi-Fi card
+    std::function<void()> send_files;       // "send a file to the device" button: pick files and send them
+    std::function<void(const std::vector<std::wstring>&)> drop_files;  // files dropped on the window
 };
 
 void init(HINSTANCE instance, std::function<State()> state, Actions actions);

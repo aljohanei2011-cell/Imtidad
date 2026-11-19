@@ -2,6 +2,7 @@
 #include "ui.hpp"
 
 #include <objidl.h>
+#include <shellapi.h>
 #include <shlwapi.h>
 #include <dwmapi.h>
 #include <gdiplus.h>
@@ -279,11 +280,16 @@ void paint(Graphics& g) {
     stroke_round(panel, 18, rgb(th.border));
     const float px = panel.X + 26, pw = panel.Width - 52;
     {   // header: path and the main button
-        text(g, L"امتداد  /  الرئيسية", RectF(px + 260, panel.Y + 20, pw - 260, 24), 15, false, rgb(th.muted));
-        const RectF open(px, panel.Y + 14, 240, 38);
+        text(g, L"امتداد  /  الرئيسية", RectF(px + 430, panel.Y + 20, pw - 430, 24), 15, false, rgb(th.muted));
+        const RectF send(px, panel.Y + 14, 200, 38);
+        g_cards[1] = send;
+        fill_round(send, 10, hot_at(send) ? rgb(th.accent) : (is_dark() ? rgb(th.accent) : rgb(0x0B1530)));
+        text(g, L"إرسال ملف إلى الجهاز", send, 14, false, white, StringAlignmentCenter, StringAlignmentCenter);
+        const RectF open(px + 212, panel.Y + 14, 200, 38);
         g_cards[0] = open;
-        fill_round(open, 10, hot_at(open) ? rgb(th.accent) : (is_dark() ? rgb(th.accent) : rgb(0x0B1530)));
-        text(g, L"فتح التطبيق على التابلت", open, 14, false, white, StringAlignmentCenter, StringAlignmentCenter);
+        fill_round(open, 10, rgb(hot_at(open) ? th.selected : th.panel));
+        stroke_round(open, 10, rgb(hot_at(open) ? th.accent : th.border));
+        text(g, L"فتح التطبيق على التابلت", open, 14, false, rgb(th.text), StringAlignmentCenter, StringAlignmentCenter);
         Pen line(rgb(th.border), 1.f);
         g.DrawLine(&line, panel.X, panel.Y + 66, panel.GetRight(), panel.Y + 66);
     }
@@ -354,7 +360,8 @@ void paint(Graphics& g) {
         const RectF quick(px, y, qw, dev.Height);
         card_back(g, dev, false, false, 16);
         text(g, L"الأجهزة", RectF(dev.X + 20, dev.Y + 16, dev.Width - 40, 22), 16, true, rgb(th.text));
-        text(g, std::to_wstring(st.devices.size()) + L" متصل", RectF(dev.X + 20, dev.Y + 40, dev.Width - 40, 18), 12.5f, false, rgb(th.muted));
+        text(g, std::to_wstring(st.devices.size()) + L" متصل  ·  اسحب ملفًا إلى هذه النافذة لإرساله إلى الجهاز",
+             RectF(dev.X + 20, dev.Y + 40, dev.Width - 40, 18), 12.5f, false, rgb(th.muted));
         const RectF head(dev.X + 1, dev.Y + 68, dev.Width - 2, 30);
         SolidBrush hb(rgb(th.soft));
         g.FillRectangle(&hb, head);
@@ -468,11 +475,25 @@ LRESULT CALLBACK proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             const POINT p = to_logical(hwnd, lp);
             const PointF pf(static_cast<REAL>(p.x), static_cast<REAL>(p.y));
             if (g_cards[0].Contains(pf) && g_actions.open_app) g_actions.open_app();
+            if (g_cards[1].Contains(pf) && g_actions.send_files) g_actions.send_files();
             if (g_cards[2].Contains(pf) && g_actions.toggle_audio) g_actions.toggle_audio();
             if (g_cards[3].Contains(pf) && g_actions.display_settings) g_actions.display_settings();
             if (g_cards[4].Contains(pf) && g_actions.allow_wifi) g_actions.allow_wifi();
             if (g_theme_button.Contains(pf)) set_theme_mode((g_theme_mode + 1) % 3);
             InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+        case WM_DROPFILES: {
+            // Files dragged from Explorer onto the window go to the device.
+            HDROP drop = reinterpret_cast<HDROP>(wp);
+            std::vector<std::wstring> files;
+            const UINT n = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+            for (UINT i = 0; i < n; ++i) {
+                wchar_t path[MAX_PATH * 4];
+                if (DragQueryFileW(drop, i, path, ARRAYSIZE(path))) files.emplace_back(path);
+            }
+            DragFinish(drop);
+            if (!files.empty() && g_actions.drop_files) g_actions.drop_files(files);
             return 0;
         }
         case WM_TIMER: {
@@ -528,7 +549,7 @@ void show_settings() {
         return;
     }
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-    const DWORD ex = WS_EX_LAYOUTRTL | WS_EX_APPWINDOW;
+    const DWORD ex = WS_EX_LAYOUTRTL | WS_EX_APPWINDOW | WS_EX_ACCEPTFILES;
     g_hwnd = CreateWindowExW(ex, L"ImtidadSettings", L"امتداد", style, CW_USEDEFAULT, CW_USEDEFAULT, 100, 100,
                              nullptr, nullptr, g_instance, nullptr);
     if (!g_hwnd) return;

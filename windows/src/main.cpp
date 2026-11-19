@@ -49,7 +49,7 @@ constexpr UINT WM_NOTIFY_USER = WM_APP + 3;
 constexpr UINT WM_SHOW_SETTINGS = WM_APP + 4;
 
 enum MenuId : UINT {
-    ID_STATUS = 100, ID_HEADER, ID_SETTINGS, ID_OPEN_APP, ID_INSTALL_APP, ID_STOP_STREAM, ID_WIFI, ID_AUTOSTART, ID_LOG, ID_EXIT, ID_FORGET, ID_PRIVATE, ID_SEND_APP,
+    ID_STATUS = 100, ID_HEADER, ID_SETTINGS, ID_OPEN_APP, ID_INSTALL_APP, ID_STOP_STREAM, ID_WIFI, ID_AUTOSTART, ID_LOG, ID_EXIT, ID_FORGET, ID_PRIVATE, ID_SEND_APP, ID_SEND_FILE,
 };
 
 std::mutex g_log_mutex;
@@ -1213,6 +1213,44 @@ void install_app_on_device() {
     }).detach();
 }
 
+// ------------------------------------------------------------------ PC → device files (window button, menu, drag and drop)
+void send_files_to_device(const std::vector<std::wstring>& files) {
+    int sent = 0;
+    for (const auto& f : files) if (offer_file(f, false)) ++sent;
+    if (files.empty()) return;
+    if (sent == 0) notify(L"امتداد", L"لا يوجد جهاز متصل. صِل التابلت أو افتح التطبيق عليه أولًا.");
+    else notify(L"امتداد", L"أُرسل " + std::to_wstring(sent) + L" ملف إلى الجهاز — في Download/Imtidad أو الصور.");
+}
+
+// Opens Windows' file picker (several files allowed) and sends the chosen files.
+void pick_and_send_files() {
+    IFileOpenDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) return;
+    DWORD opts = 0;
+    dlg->GetOptions(&opts);
+    dlg->SetOptions(opts | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM);
+    dlg->SetTitle(L"اختر ملفات لإرسالها إلى الجهاز");
+    std::vector<std::wstring> files;
+    if (SUCCEEDED(dlg->Show(nullptr))) {
+        IShellItemArray* items = nullptr;
+        if (SUCCEEDED(dlg->GetResults(&items))) {
+            DWORD n = 0;
+            items->GetCount(&n);
+            for (DWORD i = 0; i < n; ++i) {
+                IShellItem* item = nullptr;
+                if (SUCCEEDED(items->GetItemAt(i, &item))) {
+                    PWSTR path = nullptr;
+                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) { files.emplace_back(path); CoTaskMemFree(path); }
+                    item->Release();
+                }
+            }
+            items->Release();
+        }
+    }
+    dlg->Release();
+    if (!files.empty()) std::thread([files] { send_files_to_device(files); }).detach();
+}
+
 // ------------------------------------------------------------------ tray UI
 HICON load_app_icon(int size) {
     return static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1), IMAGE_ICON, size, size, 0));
@@ -1274,6 +1312,7 @@ void show_menu(HWND hwnd) {
             std::lock_guard<std::mutex> lock(g_sessions_mutex);
             for (auto& sess : g_sessions) any = any || sess->authed;
         }
+        add_item(m, MF_STRING | (any ? 0 : MF_GRAYED), ID_SEND_FILE, L"إرسال ملف إلى الجهاز…", open);
         add_item(m, MF_STRING | (any && !find_apk().empty() ? 0 : MF_GRAYED), ID_SEND_APP,
                  L"إرسال التطبيق إلى الجهاز (بدون تصحيح USB)", download);
     }
@@ -1526,6 +1565,9 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case ID_PRIVATE:
                     toggle_privacy();
                     break;
+                case ID_SEND_FILE:
+                    pick_and_send_files();
+                    break;
                 case ID_SEND_APP: {
                     const std::wstring apk = find_apk();
                     if (!apk.empty() && offer_file(apk, false))
@@ -1689,6 +1731,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdline, int) {
         [] { set_audio_enabled(!g_audio_enabled); },
         [] { cycle_side(); },
         [] { if (!g_wifi_allowed) std::thread(allow_wifi).detach(); },
+        [] { pick_and_send_files(); },
+        [](const std::vector<std::wstring>& files) { send_files_to_device(files); },
     });
 
     WNDCLASSW wc{};

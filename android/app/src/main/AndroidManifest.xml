@@ -16,9 +16,9 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize" />
-        <!-- Launcher entry under a new name, so home screens drop any icon they cached for older test builds. -->
+        <!-- Launcher entry under a new name (2.0.1), so home screens drop the icon they cached for older builds (the green one). -->
         <activity-alias
-            android:name=".Imtidad"
+            android:name=".ImtidadHome"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher_round"
